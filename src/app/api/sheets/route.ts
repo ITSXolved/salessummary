@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'; // Always fetch live data
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const date = searchParams.get('date');
+  const endDateRaw = searchParams.get('endDate');
 
   if (!date) {
     return NextResponse.json(
@@ -17,7 +18,8 @@ export async function GET(request: NextRequest) {
   try {
     // Convert YYYY-MM-DD to M/D/YYYY for Google Sheets matching
     const sheetDate = inputDateToSheetFormat(date);
-    const data = await fetchAllSheets(sheetDate);
+    const sheetEndDate = endDateRaw ? inputDateToSheetFormat(endDateRaw) : undefined;
+    const data = await fetchAllSheets(sheetDate, sheetEndDate);
 
     return NextResponse.json(data);
   } catch (error) {

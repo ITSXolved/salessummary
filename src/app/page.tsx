@@ -92,6 +92,7 @@ function ReportSection({
 
 export default function Home() {
   const [date, setDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [report, setReport] = useState<ReportData | null>(null);
@@ -104,7 +105,11 @@ export default function Home() {
     setReport(null);
 
     try {
-      const res = await fetch(`/api/sheets?date=${date}`, { cache: 'no-store' });
+      let url = `/api/sheets?date=${date}`;
+      if (endDate) {
+        url += `&endDate=${endDate}`;
+      }
+      const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch report data');
       const data: ReportData = await res.json();
       setReport(data);
@@ -167,6 +172,15 @@ export default function Home() {
     return d;
   };
 
+  const getDisplayDateRange = () => {
+    if (!report) return '';
+    let text = formatDisplayDate(report.date);
+    if (report.endDate) {
+      text += ` to ${formatDisplayDate(report.endDate)}`;
+    }
+    return text;
+  };
+
   return (
     <main className="container">
       <header className="header">
@@ -175,15 +189,28 @@ export default function Home() {
       </header>
 
       <div className="date-section">
-        <label htmlFor="report-date">Select Report Date</label>
+        <label>Select Report Date(s)</label>
         <div className="date-row">
-          <input
-            id="report-date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            onKeyDown={handleKeyDown}
-          />
+          <div className="date-input-group">
+             <label htmlFor="report-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>From Date</label>
+             <input
+               id="report-date"
+               type="date"
+               value={date}
+               onChange={(e) => setDate(e.target.value)}
+               onKeyDown={handleKeyDown}
+             />
+          </div>
+          <div className="date-input-group">
+             <label htmlFor="end-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>To Date (Optional)</label>
+             <input
+               id="end-date"
+               type="date"
+               value={endDate}
+               onChange={(e) => setEndDate(e.target.value)}
+               onKeyDown={handleKeyDown}
+             />
+          </div>
           <button
             className="btn-generate"
             onClick={fetchReport}
@@ -216,7 +243,7 @@ export default function Home() {
               Live Data
             </div>
             <h2>
-              Daily Report: <span>{formatDisplayDate(date)}</span>
+              Daily Report: <span>{getDisplayDateRange()}</span>
             </h2>
           </div>
 

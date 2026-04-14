@@ -40,6 +40,7 @@ export interface ReportData {
   ayadi: SheetData | null;
   manager: SheetData | null;
   date: string;
+  endDate?: string;
 }
 
 // Parse a CSV line handling quoted fields
@@ -97,7 +98,8 @@ export function inputDateToSheetFormat(inputDate: string): string {
 // Fetch and parse a single sheet, returning the subtotal row for a given date
 async function fetchSheetData(
   sheetKey: keyof typeof SHEETS,
-  targetDate: string
+  targetDate: string,
+  endDate?: string
 ): Promise<SheetData | null> {
   const sheet = SHEETS[sheetKey];
 
@@ -192,85 +194,127 @@ async function fetchSheetData(
       // else: rows before any date (header area/empty rows) — skip
     }
 
-    // Step 2: Find the date group matching our target
-    const targetGroup = dateGroups.find((g) => g.date === normalizedTarget);
-    if (!targetGroup || targetGroup.rows.length === 0) return null;
+    // Step 2: Find the date groups matching our target (or target range)
+    const normalizedEnd = normalizeDate(endDate || '');
 
-    // Step 3: Find the subtotal row — it's the FIRST row with an empty name
-    // that appears AFTER at least one named row in the group.
-    // We use the FIRST (not last) because the grand total row at the end
-    // of the CSV (empty date + empty name) gets appended to the last date's
-    // group. The date subtotal always comes before the grand total.
-    let subtotalRow: string[] | null = null;
-    let hasSeenNamedRow = false;
-    const namedRows: string[][] = [];
-    for (let i = 0; i < targetGroup.rows.length; i++) {
-      const cols = targetGroup.rows[i];
-      const name = nameIdx >= 0 ? (cols[nameIdx] || '').trim() : '';
-      if (name !== '') {
-        hasSeenNamedRow = true;
-        namedRows.push(cols);
-      } else if (hasSeenNamedRow) {
-        // First empty-name row after named rows = the date subtotal
-        subtotalRow = cols;
-        break;
-      }
-    }
+    const targetTime = new Date(normalizedTarget).getTime();
+    const endTime = normalizedEnd ? new Date(normalizedEnd).getTime() : targetTime;
 
-    // If no subtotal row exists (e.g., single-person date), sum named rows
-    if (!subtotalRow && namedRows.length === 0) return null;
+    const targetGroups = dateGroups.filter((g) => {
+      const gTime = new Date(g.date).getTime();
+      return gTime >= targetTime && gTime <= endTime;
+    });
 
-    if (!subtotalRow && namedRows.length === 1) {
-      // Only one person — use their row directly
-      subtotalRow = namedRows[0];
-    } else if (!subtotalRow && namedRows.length > 1) {
-      // Multiple people but no subtotal — sum them up
-      const summed = [...namedRows[0]];
-      for (let r = 1; r < namedRows.length; r++) {
-        for (let c = 0; c < summed.length; c++) {
-          if (c === dateIdx || c === nameIdx) continue;
-          const existing = parseFloat(summed[c]) || 0;
-          const toAdd = parseFloat(namedRows[r][c]) || 0;
-          summed[c] = String(existing + toAdd);
+    if (targetGroups.length === 0) return null;
+
+    // Sort target groups by date so the last one in the array is the most recent
+    targetGroups.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Step 3: Find the subtotal row for each group and aggregate
+    const extractSubtotal = (group: DateGroup): string[] | null => {
+      let subtotalRow: string[] | null = null;
+      let hasSeenNamedRow = false;
+      const namedRows: string[][] = [];
+      for (let i = 0; i < group.rows.length; i++) {
+        const cols = group.rows[i];
+        const name = nameIdx >= 0 ? (cols[nameIdx] || '').trim() : '';
+        if (name !== '') {
+          hasSeenNamedRow = true;
+          namedRows.push(cols);
+        } else if (hasSeenNamedRow) {
+          subtotalRow = cols;
+          break;
         }
       }
-      subtotalRow = summed;
+
+      if (!subtotalRow && namedRows.length === 0) return null;
+
+      if (!subtotalRow && namedRows.length === 1) {
+        subtotalRow = namedRows[0];
+      } else if (!subtotalRow && namedRows.length > 1) {
+        const summed = [...namedRows[0]];
+        for (let r = 1; r < namedRows.length; r++) {
+          for (let c = 0; c < summed.length; c++) {
+            if (c === dateIdx || c === nameIdx) continue;
+            const existing = parseFloat(summed[c]) || 0;
+            const toAdd = parseFloat(namedRows[r][c]) || 0;
+            summed[c] = String(existing + toAdd);
+          }
+        }
+        subtotalRow = summed;
+      }
+      return subtotalRow;
+    };
+
+    let result: SheetData | null = null;
+
+    for (let i = 0; i < targetGroups.length; i++) {
+      const group = targetGroups[i];
+      const subtotalRow = extractSubtotal(group);
+      if (!subtotalRow) continue;
+
+      const isLastGroup = i === targetGroups.length - 1;
+
+      const data: SheetData = {
+        todayAdmission: val(subtotalRow, todayAdmIdx),
+        todayIncome: val(subtotalRow, todayIncIdx),
+        todayPoint: val(subtotalRow, todayPtIdx),
+        monthAdmission: val(subtotalRow, monthAdmIdx),
+        monthIncome: val(subtotalRow, monthIncIdx),
+        monthPoint: val(subtotalRow, monthPtIdx),
+        totalSDO: sheetKey === 'manager' ? 0 : val(subtotalRow, totalSDOIdx),
+        activeSDO: sheetKey === 'manager' ? 0 : val(subtotalRow, activeSDOIdx),
+        totalSO: val(subtotalRow, totalSOIdx),
+        activeSO: val(subtotalRow, activeSOIdx),
+        totalMSO: sheetKey === 'ayadi' ? val(subtotalRow, totalSDOMSOIdx) : 0,
+        activeMSO: sheetKey === 'ayadi' ? val(subtotalRow, activeSDOMSOIdx) : 0,
+        raihanAdmission: val(subtotalRow, raihanIdx),
+        zealyAdmission: val(subtotalRow, zealyIdx),
+        agsAdmission: val(subtotalRow, agsIdx),
+      };
+
+      if (!result) {
+        result = data;
+      } else {
+        // Aggregate daily/source metrics across the date range
+        result.todayAdmission += data.todayAdmission;
+        result.todayIncome += data.todayIncome;
+        result.todayPoint += data.todayPoint;
+        result.raihanAdmission += data.raihanAdmission;
+        result.zealyAdmission += data.zealyAdmission;
+        result.agsAdmission += data.agsAdmission;
+
+        // For cumulative/point-in-time metrics, override with the latest value
+        if (isLastGroup) {
+          result.monthAdmission = data.monthAdmission;
+          result.monthIncome = data.monthIncome;
+          result.monthPoint = data.monthPoint;
+          result.totalSDO = data.totalSDO;
+          result.activeSDO = data.activeSDO;
+          result.totalSO = data.totalSO;
+          result.activeSO = data.activeSO;
+          result.totalMSO = data.totalMSO;
+          result.activeMSO = data.activeMSO;
+        }
+      }
     }
 
-    if (!subtotalRow) return null;
-
-    return {
-      todayAdmission: val(subtotalRow, todayAdmIdx),
-      todayIncome: val(subtotalRow, todayIncIdx),
-      todayPoint: val(subtotalRow, todayPtIdx),
-      monthAdmission: val(subtotalRow, monthAdmIdx),
-      monthIncome: val(subtotalRow, monthIncIdx),
-      monthPoint: val(subtotalRow, monthPtIdx),
-      totalSDO: sheetKey === 'manager' ? 0 : val(subtotalRow, totalSDOIdx),
-      activeSDO: sheetKey === 'manager' ? 0 : val(subtotalRow, activeSDOIdx),
-      totalSO: val(subtotalRow, totalSOIdx),
-      activeSO: val(subtotalRow, activeSOIdx),
-      totalMSO: sheetKey === 'ayadi' ? val(subtotalRow, totalSDOMSOIdx) : 0,
-      activeMSO: sheetKey === 'ayadi' ? val(subtotalRow, activeSDOMSOIdx) : 0,
-      raihanAdmission: val(subtotalRow, raihanIdx),
-      zealyAdmission: val(subtotalRow, zealyIdx),
-      agsAdmission: val(subtotalRow, agsIdx),
-    };
+    return result;
   } catch (error) {
     console.error(`Error fetching ${sheetKey}:`, error);
     return null;
   }
 }
 
-// Fetch data from all 3 sheets for a given date
-export async function fetchAllSheets(targetDate: string): Promise<ReportData> {
+// Fetch data from all 3 sheets for a given date or range
+export async function fetchAllSheets(targetDate: string, endDate?: string): Promise<ReportData> {
   const [nawazin, ayadi, manager] = await Promise.all([
-    fetchSheetData('nawazin', targetDate),
-    fetchSheetData('ayadi', targetDate),
-    fetchSheetData('manager', targetDate),
+    fetchSheetData('nawazin', targetDate, endDate),
+    fetchSheetData('ayadi', targetDate, endDate),
+    fetchSheetData('manager', targetDate, endDate),
   ]);
 
-  return { nawazin, ayadi, manager, date: targetDate };
+  return { nawazin, ayadi, manager, date: targetDate, endDate };
 }
 
 // Format number with commas (Indian style)
@@ -295,6 +339,16 @@ export function generateReportText(data: ReportData): string {
   if (dateParts.length === 3) {
     const yy = dateParts[2].slice(-2);
     formattedDate = `${dateParts[1].padStart(2, '0')}/${dateParts[0].padStart(2, '0')}/${yy}`;
+  }
+
+  if (data.endDate) {
+    const endParts = data.endDate.split('/');
+    if (endParts.length === 3) {
+      const yy = endParts[2].slice(-2);
+      formattedDate += ` to ${endParts[1].padStart(2, '0')}/${endParts[0].padStart(2, '0')}/${yy}`;
+    } else {
+      formattedDate += ` to ${data.endDate}`;
+    }
   }
 
   let text = `*Daily Report: ${formattedDate}*\n\n`;
