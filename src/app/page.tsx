@@ -186,6 +186,36 @@ export default function Home() {
       <header className="header">
         <h1>Daily Report Generator</h1>
         <p>Live data from Google Sheets</p>
+        <a
+          href="/dashboard"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.375rem',
+            marginTop: '1rem',
+            padding: '0.5rem 1.25rem',
+            background: 'rgba(99,102,241,0.12)',
+            border: '1px solid rgba(99,102,241,0.3)',
+            borderRadius: '20px',
+            color: '#a78bfa',
+            fontFamily: 'var(--font-inter)',
+            fontSize: '0.8125rem',
+            fontWeight: 600,
+            textDecoration: 'none',
+            letterSpacing: '0.01em',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(99,102,241,0.22)';
+            (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-1px)';
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLAnchorElement).style.background = 'rgba(99,102,241,0.12)';
+            (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(0)';
+          }}
+        >
+          📈 Growth Dashboard
+        </a>
       </header>
 
       <div className="date-section">
