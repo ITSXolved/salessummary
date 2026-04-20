@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -111,6 +111,16 @@ export default function Dashboard() {
     }
   }, [startDate, endDate]);
 
+  // ── Auto-fetch when dates change (debounced 600 ms) ─────────────────────────
+  // This ensures SO/SDO chart + time-series always reflect the selected date range
+  // without requiring the user to manually click "Fetch Data" after every date change.
+  useEffect(() => {
+    if (!startDate || !endDate) return;
+    const timer = setTimeout(() => { fetchData(); }, 600);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);
+
   // ── Derived: all unique dates in range (sorted) ──────────────────────────────
   const allDates = useMemo(() => {
     if (!data) return [];
@@ -202,19 +212,26 @@ export default function Dashboard() {
       sourceFilter === 'All' ? data.points : data.points.filter((p) => p.source === sourceFilter);
 
     // Collect last (latest date) snapshot per CSDO
+    // We also track the MAX seen SDO ever (to detect if a CSDO's sheet tracks SDO at all)
     const latest: Record<string, {
       totalSO: number; activeSO: number;
       totalSDO: number; activeSDO: number;
+      maxSDOEver: number; // non-zero means the sheet has SDO data for this CSDO
       date: string;
     }> = {};
     for (const p of filteredPoints) {
       if (!activeCSDOs.includes(p.csdo) && activeCSDOs.length > 0) continue;
-      if (!latest[p.csdo] || p.date > latest[p.csdo].date) {
+      const prev = latest[p.csdo];
+      if (!prev || p.date > prev.date) {
         latest[p.csdo] = {
           totalSO: p.totalSO, activeSO: p.activeSO,
           totalSDO: p.totalSDO, activeSDO: p.activeSDO,
+          maxSDOEver: Math.max(prev?.maxSDOEver ?? 0, p.totalSDO, p.activeSDO),
           date: p.date,
         };
+      } else {
+        // Update maxSDOEver even if this isn't the latest date
+        prev.maxSDOEver = Math.max(prev.maxSDOEver, p.totalSDO, p.activeSDO);
       }
     }
 
@@ -227,9 +244,14 @@ export default function Dashboard() {
         activeSO:  v.activeSO,
         totalSDO:  v.totalSDO,
         activeSDO: v.activeSDO,
+        hasSDO: v.maxSDOEver > 0,  // true only if this CSDO's sheet tracks SDO
         color: csodoColor(filteredCSDOs.indexOf(csdo) >= 0 ? filteredCSDOs.indexOf(csdo) : idx),
       }));
   }, [data, activeCSDOs, filteredCSDOs, sourceFilter]);
+
+  // Whether ANY entry in the bar data has SDO values
+  const anyHasSDO = soBarData.some((d) => d.hasSDO);
+
 
   // ── Download PNG ──────────────────────────────────────────────────────────────
   const downloadPNG = useCallback(async () => {
@@ -666,17 +688,19 @@ export default function Dashboard() {
           <div className="db-chart-card">
             <div className="db-chart-header">
               <div className="db-chart-title">
-                👥 SO &amp; SDO Breakdown per CSDO
+                👥 {anyHasSDO ? 'SO & SDO Breakdown' : 'SO Breakdown'} per CSDO
                 <span style={{ fontSize: '0.7rem', color: 'var(--db-muted)', fontWeight: 400 }}>
-                   — latest snapshot in range
+                   — as of {soBarData[0] ? endDate : '—'}
                 </span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.72rem', color: 'var(--db-muted)' }}>
                 {[
                   { color: '#6366f1', label: 'Total SO' },
                   { color: '#818cf8', label: 'Active SO' },
-                  { color: '#f59e0b', label: 'Total SDO' },
-                  { color: '#34d399', label: 'Active SDO' },
+                  ...(anyHasSDO ? [
+                    { color: '#f59e0b', label: 'Total SDO' },
+                    { color: '#34d399', label: 'Active SDO' },
+                  ] : []),
                 ].map(({ color, label }) => (
                   <span key={label} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                     <span style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block' }} />
@@ -735,26 +759,28 @@ export default function Dashboard() {
                             <span className="tooltip-val">{Math.max(0, tSO - aSO)}</span>
                           </div>
                         </div>
-                        <div>
-                          <div className="tooltip-row">
-                            <span className="tooltip-dot" style={{ background: '#f59e0b' }} />
-                            <span className="tooltip-name">Total SDO</span>
-                            <span className="tooltip-val">{tSDO}</span>
+                        {anyHasSDO && tSDO > 0 && (
+                          <div>
+                            <div className="tooltip-row">
+                              <span className="tooltip-dot" style={{ background: '#f59e0b' }} />
+                              <span className="tooltip-name">Total SDO</span>
+                              <span className="tooltip-val">{tSDO}</span>
+                            </div>
+                            <div className="tooltip-row">
+                              <span className="tooltip-dot" style={{ background: '#34d399' }} />
+                              <span className="tooltip-name">Active SDO</span>
+                              <span className="tooltip-val">{aSDO}</span>
+                            </div>
+                            <div className="tooltip-row">
+                              <span className="tooltip-dot" style={{ background: 'rgba(245,158,11,0.3)' }} />
+                              <span className="tooltip-name">Inactive SDO</span>
+                              <span className="tooltip-val">{Math.max(0, tSDO - aSDO)}</span>
+                            </div>
                           </div>
-                          <div className="tooltip-row">
-                            <span className="tooltip-dot" style={{ background: '#34d399' }} />
-                            <span className="tooltip-name">Active SDO</span>
-                            <span className="tooltip-val">{aSDO}</span>
-                          </div>
-                          <div className="tooltip-row">
-                            <span className="tooltip-dot" style={{ background: 'rgba(245,158,11,0.3)' }} />
-                            <span className="tooltip-name">Inactive SDO</span>
-                            <span className="tooltip-val">{Math.max(0, tSDO - aSDO)}</span>
-                          </div>
-                        </div>
+                        )}
                         <div className="tooltip-meta">
                           SO active: {tSO > 0 ? Math.round((aSO / tSO) * 100) : 0}%
-                          &nbsp;&nbsp;SDO active: {tSDO > 0 ? Math.round((aSDO / tSDO) * 100) : 0}%
+                          {anyHasSDO && tSDO > 0 && <>&nbsp;&nbsp;SDO active: {Math.round((aSDO / tSDO) * 100)}%</>}
                         </div>
                       </div>
                     );
@@ -766,12 +792,16 @@ export default function Dashboard() {
                 <Bar dataKey="activeSO" name="Active SO" fill="#818cf8" radius={[0, 3, 3, 0]} maxBarSize={13}>
                   <LabelList dataKey="activeSO" position="right" style={{ fill: '#64748b', fontSize: 10 }} />
                 </Bar>
-                <Bar dataKey="totalSDO"  name="Total SDO"  fill="#f59e0b" radius={[0, 3, 3, 0]} maxBarSize={13}>
-                  <LabelList dataKey="totalSDO"  position="right" style={{ fill: '#64748b', fontSize: 10 }} />
-                </Bar>
-                <Bar dataKey="activeSDO" name="Active SDO" fill="#34d399" radius={[0, 3, 3, 0]} maxBarSize={13}>
-                  <LabelList dataKey="activeSDO" position="right" style={{ fill: '#64748b', fontSize: 10 }} />
-                </Bar>
+                {anyHasSDO && (
+                  <>
+                    <Bar dataKey="totalSDO"  name="Total SDO"  fill="#f59e0b" radius={[0, 3, 3, 0]} maxBarSize={13}>
+                      <LabelList dataKey="totalSDO"  position="right" style={{ fill: '#64748b', fontSize: 10 }} />
+                    </Bar>
+                    <Bar dataKey="activeSDO" name="Active SDO" fill="#34d399" radius={[0, 3, 3, 0]} maxBarSize={13}>
+                      <LabelList dataKey="activeSDO" position="right" style={{ fill: '#64748b', fontSize: 10 }} />
+                    </Bar>
+                  </>
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>

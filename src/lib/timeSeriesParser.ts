@@ -149,17 +149,28 @@ async function fetchSheetTimeSeries(
     const todayPtIdx  = getColIdx('TODAY POINT');
     const todayAdmIdx = getColIdx('TODAY ADMISSION');
     const todayIncIdx = getColIdx('TODAY INCOME');
+
+    // SO columns — exclude MSO and SDO to avoid false matches
     const totalSOIdx  = headers.findIndex((h) =>
       h.toUpperCase().includes('TOTAL SO') && !h.toUpperCase().includes('MSO') && !h.toUpperCase().includes('SDO')
     );
     const activeSOIdx = headers.findIndex((h) =>
       h.toUpperCase().includes('ACTIVE SO') && !h.toUpperCase().includes('MSO') && !h.toUpperCase().includes('SDO')
     );
-    const totalSDOIdx = headers.findIndex((h) =>
+
+    // SDO columns — mirror parseSheets.ts: prefer standalone SDO, fall back to SDO/MSO combo
+    let totalSDOIdx = headers.findIndex((h) =>
       h.toUpperCase().includes('TOTAL SDO') && !h.toUpperCase().includes('MSO')
     );
-    const activeSDOIdx = headers.findIndex((h) =>
+    let activeSDOIdx = headers.findIndex((h) =>
       h.toUpperCase().includes('ACTIVE SDO') && !h.toUpperCase().includes('MSO')
+    );
+    // Fallback: some sheets combine SDO and MSO in one column (e.g. Ayadi)
+    if (totalSDOIdx  === -1) totalSDOIdx  = headers.findIndex((h) =>
+      h.toUpperCase().includes('TOTAL SDO') && h.toUpperCase().includes('MSO')
+    );
+    if (activeSDOIdx === -1) activeSDOIdx = headers.findIndex((h) =>
+      h.toUpperCase().includes('ACTIVE SDO') && h.toUpperCase().includes('MSO')
     );
 
     const val = (cols: string[], idx: number): number =>
