@@ -356,9 +356,9 @@ export function generateReportText(data: ReportData): string {
   // Nawazin section
   if (nawazin) {
     text += `*Nawazin*\n\n`;
-    text += `Today Admission: *${nawazin.todayAdmission}*\n`;
-    text += `Today Income: *${formatNumber(nawazin.todayIncome)}*\n`;
-    text += `Today Point: *${nawazin.todayPoint}*\n\n`;
+    text += `Admission: *${nawazin.todayAdmission}*\n`;
+    text += `Income: *${formatNumber(nawazin.todayIncome)}*\n`;
+    text += `Point: *${nawazin.todayPoint}*\n\n`;
     text += `Month Admission: *${nawazin.monthAdmission}*\n`;
     text += `Month Income: *${formatNumber(nawazin.monthIncome)}*\n`;
     text += `Month Point: *${nawazin.monthPoint}*\n\n`;
@@ -376,9 +376,9 @@ export function generateReportText(data: ReportData): string {
   // Ayadi & Elite section
   if (ayadi) {
     text += `*AYADI*  & *ELITE*\n\n`;
-    text += `Today Admission: *${ayadi.todayAdmission}*\n`;
-    text += `Today Income: *${formatNumber(ayadi.todayIncome)}*\n`;
-    text += `Today Point: *${ayadi.todayPoint}*\n\n`;
+    text += `Admission: *${ayadi.todayAdmission}*\n`;
+    text += `Income: *${formatNumber(ayadi.todayIncome)}*\n`;
+    text += `Point: *${ayadi.todayPoint}*\n\n`;
     text += `Month Admission: *${ayadi.monthAdmission}*\n`;
     text += `Month Income: *${formatNumber(ayadi.monthIncome)}*\n`;
     text += `Month Point: *${ayadi.monthPoint}*\n\n`;
@@ -398,9 +398,9 @@ export function generateReportText(data: ReportData): string {
   // Manager section
   if (manager) {
     text += `*Manager*\n\n`;
-    text += `Today admission: *${manager.todayAdmission}*\n`;
-    text += `Today point  : *${manager.todayPoint}*\n`;
-    text += `Today income : *${formatNumber(manager.todayIncome)}*\n\n`;
+    text += `Admission: *${manager.todayAdmission}*\n`;
+    text += `Point  : *${manager.todayPoint}*\n`;
+    text += `income : *${formatNumber(manager.todayIncome)}*\n\n`;
     text += `Month admission: *${manager.monthAdmission}*\n`;
     text += `Month point: *${manager.monthPoint}*\n`;
     text += `Month income *${formatNumber(manager.monthIncome)}*\n\n`;
