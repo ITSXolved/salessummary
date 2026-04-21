@@ -146,12 +146,12 @@ async function fetchSheetTimeSeries(
     const getColIdx = (partial: string) =>
       headers.findIndex((h) => h.toUpperCase().includes(partial.toUpperCase()));
 
-    const todayPtIdx  = getColIdx('TODAY POINT');
-    const todayAdmIdx = getColIdx('TODAY ADMISSION');
-    const todayIncIdx = getColIdx('TODAY INCOME');
+    const todayPtIdx = getColIdx('POINT');
+    const todayAdmIdx = getColIdx('ADMISSION');
+    const todayIncIdx = getColIdx('INCOME');
 
     // SO columns — exclude MSO and SDO to avoid false matches
-    const totalSOIdx  = headers.findIndex((h) =>
+    const totalSOIdx = headers.findIndex((h) =>
       h.toUpperCase().includes('TOTAL SO') && !h.toUpperCase().includes('MSO') && !h.toUpperCase().includes('SDO')
     );
     const activeSOIdx = headers.findIndex((h) =>
@@ -166,7 +166,7 @@ async function fetchSheetTimeSeries(
       h.toUpperCase().includes('ACTIVE SDO') && !h.toUpperCase().includes('MSO')
     );
     // Fallback: some sheets combine SDO and MSO in one column (e.g. Ayadi)
-    if (totalSDOIdx  === -1) totalSDOIdx  = headers.findIndex((h) =>
+    if (totalSDOIdx === -1) totalSDOIdx = headers.findIndex((h) =>
       h.toUpperCase().includes('TOTAL SDO') && h.toUpperCase().includes('MSO')
     );
     if (activeSDOIdx === -1) activeSDOIdx = headers.findIndex((h) =>
@@ -213,12 +213,12 @@ async function fetchSheetTimeSeries(
           dateLabel: isoToLabel(group.dateISO),
           csdo: name,
           source: sheet.source,
-          point:     val(cols, todayPtIdx),
+          point: val(cols, todayPtIdx),
           admission: val(cols, todayAdmIdx),
-          income:    val(cols, todayIncIdx),
-          totalSO:   val(cols, totalSOIdx),
-          activeSO:  val(cols, activeSOIdx),
-          totalSDO:  val(cols, totalSDOIdx),
+          income: val(cols, todayIncIdx),
+          totalSO: val(cols, totalSOIdx),
+          activeSO: val(cols, activeSOIdx),
+          totalSDO: val(cols, totalSDOIdx),
           activeSDO: val(cols, activeSDOIdx),
         });
       }
@@ -237,8 +237,8 @@ export async function fetchAllTimeSeries(
   // Sequential fetches — avoids hammering Google with 3 simultaneous TLS connections
   // which causes UND_ERR_SOCKET / connect timeout errors
   const nawazin = await fetchSheetTimeSeries('nawazin', startDate, endDate);
-  const ayadi   = await fetchSheetTimeSeries('ayadi',   startDate, endDate);
-  const manager  = await fetchSheetTimeSeries('manager', startDate, endDate);
+  const ayadi = await fetchSheetTimeSeries('ayadi', startDate, endDate);
+  const manager = await fetchSheetTimeSeries('manager', startDate, endDate);
 
   const allPoints = [...nawazin, ...ayadi, ...manager];
 

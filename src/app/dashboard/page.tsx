@@ -77,6 +77,18 @@ function CustomTooltip({
 }
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+// ── Snapshot types for SO/SDO per-date fetch ─────────────────────────────────
+interface SnapshotCSDO {
+  csdo: string;
+  source: string;
+  totalSO: number;
+  activeSO: number;
+  totalSDO: number;
+  activeSDO: number;
+  hasSDO: boolean;
+  color: string;
+}
+
 export default function Dashboard() {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -89,10 +101,13 @@ export default function Dashboard() {
   const [metric, setMetric] = useState<'point' | 'admission' | 'income'>('point');
   const [chartType, setChartType] = useState<'line' | 'area'>('area');
   const [sourceFilter, setSourceFilter] = useState<string>('All');
+  const [snapshotData, setSnapshotData] = useState<SnapshotCSDO[]>([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<'SO' | 'SDO' | 'both'>('SO');
 
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // ── Fetch ────────────────────────────────────────────────────────────────────
+  // ── Fetch time-series ────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (!startDate || !endDate) return;
     setLoading(true);
@@ -111,15 +126,71 @@ export default function Dashboard() {
     }
   }, [startDate, endDate]);
 
+  // ── Fetch SO/SDO snapshot for the selected endDate ───────────────────────────
+  const fetchSnapshot = useCallback(async () => {
+    if (!endDate) return;
+    setSnapshotLoading(true);
+    try {
+      const res = await fetch(`/api/timeseries?startDate=${endDate}&endDate=${endDate}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const json: TimeSeriesData = await res.json();
+
+      // Build per-CSDO SO/SDO from the single-day points
+      const map: Record<string, { totalSO: number; activeSO: number; totalSDO: number; activeSDO: number; source: string; maxSDO: number }> = {};
+      for (const p of json.points) {
+        const prev = map[p.csdo];
+        // For a single date, each CSDO may appear once per row — take the max SO (in case of subtotal duplication)
+        if (!prev || p.totalSO > prev.totalSO) {
+          map[p.csdo] = {
+            totalSO: p.totalSO, activeSO: p.activeSO,
+            totalSDO: p.totalSDO, activeSDO: p.activeSDO,
+            source: p.source,
+            maxSDO: Math.max(prev?.maxSDO ?? 0, p.totalSDO, p.activeSDO),
+          };
+        } else if (prev) {
+          prev.maxSDO = Math.max(prev.maxSDO, p.totalSDO, p.activeSDO);
+        }
+      }
+
+      const entries = Object.entries(map)
+        .filter(([, v]) => v.totalSO > 0 || v.activeSO > 0 || v.totalSDO > 0 || v.activeSDO > 0)
+        .sort((a, b) => b[1].totalSO - a[1].totalSO);
+
+      const allCSDOs = json.csdos;
+      setSnapshotData(
+        entries.map(([csdo, v], idx) => ({
+          csdo,
+          source: v.source,
+          totalSO: v.totalSO,
+          activeSO: v.activeSO,
+          totalSDO: v.totalSDO,
+          activeSDO: v.activeSDO,
+          hasSDO: v.maxSDO > 0,
+          color: csodoColor(allCSDOs.indexOf(csdo) >= 0 ? allCSDOs.indexOf(csdo) : idx),
+        }))
+      );
+    } catch {
+      // silent — snapshot is supplementary
+    } finally {
+      setSnapshotLoading(false);
+    }
+  }, [endDate]);
+
   // ── Auto-fetch when dates change (debounced 600 ms) ─────────────────────────
-  // This ensures SO/SDO chart + time-series always reflect the selected date range
-  // without requiring the user to manually click "Fetch Data" after every date change.
   useEffect(() => {
     if (!startDate || !endDate) return;
     const timer = setTimeout(() => { fetchData(); }, 600);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
+
+  // ── Auto-fetch SO/SDO snapshot whenever endDate changes ─────────────────────
+  useEffect(() => {
+    if (!endDate) return;
+    const timer = setTimeout(() => { fetchSnapshot(); }, 600);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endDate]);
 
   // ── Derived: all unique dates in range (sorted) ──────────────────────────────
   const allDates = useMemo(() => {
@@ -205,20 +276,33 @@ export default function Dashboard() {
     return { entries, maxEntry, minEntry, avg: Math.round(avg) };
   }, [data, activeCSDOs, metric, sourceFilter]);
 
-  // ── SO + SDO bar data: latest snapshots per CSDO across the date range ─────
+  // ── SO + SDO bar data ────────────────────────────────────────────────────────
+  // Priority 1: snapshotData — fetched for the exact endDate selected.
+  // Priority 2: fallback to time-series data.points (latest date in range)
+  //             used when the sheet has no entry for the exact endDate
+  //             (e.g. the day hasn't been reported yet, or it's a weekend).
   const soBarData = useMemo(() => {
+    // ── Try snapshot first ────────────────────────────────────────────────────
+    const snapshotHasSO = snapshotData.some((r) => r.totalSO > 0 || r.activeSO > 0);
+    if (snapshotHasSO) {
+      let rows = snapshotData;
+      if (sourceFilter !== 'All') rows = rows.filter((r) => r.source === sourceFilter);
+      if (activeCSDOs.length > 0) rows = rows.filter((r) => activeCSDOs.includes(r.csdo));
+      return rows;
+    }
+
+    // ── Fallback: derive from time-series (picks the latest date in range) ────
     if (!data) return [];
     const filteredPoints =
       sourceFilter === 'All' ? data.points : data.points.filter((p) => p.source === sourceFilter);
 
-    // Collect last (latest date) snapshot per CSDO
-    // We also track the MAX seen SDO ever (to detect if a CSDO's sheet tracks SDO at all)
     const latest: Record<string, {
       totalSO: number; activeSO: number;
       totalSDO: number; activeSDO: number;
-      maxSDOEver: number; // non-zero means the sheet has SDO data for this CSDO
+      maxSDOEver: number;
       date: string;
     }> = {};
+
     for (const p of filteredPoints) {
       if (!activeCSDOs.includes(p.csdo) && activeCSDOs.length > 0) continue;
       const prev = latest[p.csdo];
@@ -230,7 +314,6 @@ export default function Dashboard() {
           date: p.date,
         };
       } else {
-        // Update maxSDOEver even if this isn't the latest date
         prev.maxSDOEver = Math.max(prev.maxSDOEver, p.totalSDO, p.activeSDO);
       }
     }
@@ -240,17 +323,97 @@ export default function Dashboard() {
       .sort((a, b) => b[1].totalSO - a[1].totalSO)
       .map(([csdo, v], idx) => ({
         csdo,
+        source: '',
         totalSO:   v.totalSO,
         activeSO:  v.activeSO,
         totalSDO:  v.totalSDO,
         activeSDO: v.activeSDO,
-        hasSDO: v.maxSDOEver > 0,  // true only if this CSDO's sheet tracks SDO
+        hasSDO: v.maxSDOEver > 0,
         color: csodoColor(filteredCSDOs.indexOf(csdo) >= 0 ? filteredCSDOs.indexOf(csdo) : idx),
       }));
-  }, [data, activeCSDOs, filteredCSDOs, sourceFilter]);
+  }, [snapshotData, data, activeCSDOs, filteredCSDOs, sourceFilter]);
 
   // Whether ANY entry in the bar data has SDO values
   const anyHasSDO = soBarData.some((d) => d.hasSDO);
+
+  // ── Activity Rate Time Series ────────────────────────────────────────────────
+  // Aggregate mode (no CSDO selected): single "Avg SO/SDO Active Rate" line
+  //   = sum(active across all CSDOs) / sum(total across all CSDOs) per day
+  // Individual mode (CSDOs selected): one line per selected CSDO
+  const isActivityAggregate = selectedCSDOs.length === 0;
+
+  const activityChartData = useMemo(() => {
+    if (!data || allDates.length === 0) return [];
+    const filteredPoints =
+      sourceFilter === 'All' ? data.points : data.points.filter((p) => p.source === sourceFilter);
+
+    // Build lookup: date → csdo → { tSO, aSO, tSDO, aSDO }
+    const lookup: Record<string, Record<string, { tSO: number; aSO: number; tSDO: number; aSDO: number }>> = {};
+    for (const p of filteredPoints) {
+      if (!isActivityAggregate && !activeCSDOs.includes(p.csdo)) continue;
+      if (!lookup[p.date]) lookup[p.date] = {};
+      const prev = lookup[p.date][p.csdo];
+      if (!prev || p.totalSO > (prev.tSO ?? 0)) {
+        lookup[p.date][p.csdo] = { tSO: p.totalSO, aSO: p.activeSO, tSDO: p.totalSDO, aSDO: p.activeSDO };
+      }
+    }
+
+    const pool = isActivityAggregate ? filteredCSDOs : activeCSDOs;
+
+    return allDates.map((date) => {
+      const label = date.slice(8, 10) + '/' + date.slice(5, 7);
+      const row: ChartDatum = { date, dateLabel: label };
+
+      if (isActivityAggregate) {
+        // ── Aggregate: sum totals across all CSDOs → one rate per filter type ─
+        let sumTSO = 0, sumASO = 0, sumTSDO = 0, sumASDO = 0;
+        for (const csdo of pool) {
+          const d = lookup[date]?.[csdo];
+          if (!d) continue;
+          sumTSO  += d.tSO;  sumASO  += d.aSO;
+          sumTSDO += d.tSDO; sumASDO += d.aSDO;
+        }
+        if (activityFilter === 'SO' || activityFilter === 'both') {
+          row['Avg SO Active Rate'] = sumTSO > 0
+            ? parseFloat(((sumASO / sumTSO) * 100).toFixed(1)) : 0;
+        }
+        if (activityFilter === 'SDO' || activityFilter === 'both') {
+          row['Avg SDO Active Rate'] = sumTSDO > 0
+            ? parseFloat(((sumASDO / sumTSDO) * 100).toFixed(1)) : 0;
+        }
+      } else {
+        // ── Per-CSDO lines ───────────────────────────────────────────────────
+        for (const csdo of pool) {
+          const d = lookup[date]?.[csdo];
+          if (activityFilter === 'SO' || activityFilter === 'both') {
+            const rate = d && d.tSO > 0 ? parseFloat(((d.aSO / d.tSO) * 100).toFixed(1)) : 0;
+            row[activityFilter === 'both' ? `${csdo} SO%` : csdo] = rate;
+          }
+          if (activityFilter === 'SDO' || activityFilter === 'both') {
+            const rate = d && d.tSDO > 0 ? parseFloat(((d.aSDO / d.tSDO) * 100).toFixed(1)) : 0;
+            row[activityFilter === 'both' ? `${csdo} SDO%` : csdo] = rate;
+          }
+        }
+      }
+      return row;
+    });
+  }, [data, allDates, activeCSDOs, filteredCSDOs, sourceFilter, activityFilter, isActivityAggregate]);
+
+  // Keys to draw in the activity chart
+  const activityKeys = useMemo(() => {
+    if (isActivityAggregate) {
+      if (activityFilter === 'SO')   return ['Avg SO Active Rate'];
+      if (activityFilter === 'SDO')  return ['Avg SDO Active Rate'];
+      return ['Avg SO Active Rate', 'Avg SDO Active Rate'];
+    }
+    // Per-CSDO mode
+    if (activityFilter === 'both') {
+      return activeCSDOs.flatMap((c) => [`${c} SO%`, `${c} SDO%`]);
+    }
+    return activeCSDOs;
+  }, [isActivityAggregate, activeCSDOs, activityFilter]);
+
+
 
 
   // ── Download PNG ──────────────────────────────────────────────────────────────
@@ -314,10 +477,10 @@ export default function Dashboard() {
           </div>
           <button
             className="db-btn-primary"
-            onClick={fetchData}
-            disabled={!startDate || !endDate || loading}
+            onClick={() => { fetchData(); fetchSnapshot(); }}
+            disabled={!startDate || !endDate || loading || snapshotLoading}
           >
-            {loading ? (
+            {loading || snapshotLoading ? (
               <><span className="db-spinner" /> Fetching…</>
             ) : (
               '⚡ Fetch Data'
@@ -690,7 +853,7 @@ export default function Dashboard() {
               <div className="db-chart-title">
                 👥 {anyHasSDO ? 'SO & SDO Breakdown' : 'SO Breakdown'} per CSDO
                 <span style={{ fontSize: '0.7rem', color: 'var(--db-muted)', fontWeight: 400 }}>
-                   — as of {soBarData[0] ? endDate : '—'}
+                   — as of {endDate}{snapshotLoading && <span className="db-spinner" style={{ marginLeft: '0.5rem', verticalAlign: 'middle', width: 10, height: 10 }} />}
                 </span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.72rem', color: 'var(--db-muted)' }}>
@@ -804,6 +967,291 @@ export default function Dashboard() {
                 )}
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ── SO & SDO Summary Table ── */}
+        {soBarData.length > 0 && (
+          <div className="db-chart-card" style={{ marginTop: '1.5rem' }}>
+            <div className="db-chart-header" style={{ marginBottom: '1rem' }}>
+              <div className="db-chart-title">
+                📋 SO &amp; SDO Summary
+                <span style={{ fontSize: '0.7rem', color: 'var(--db-muted)', fontWeight: 400, marginLeft: '0.5rem' }}>
+                  — {sourceFilter !== 'All' ? `${sourceFilter} · ` : ''}{startDate} → {endDate}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="db-table" style={{ minWidth: 560 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>#</th>
+                    <th style={{ textAlign: 'left' }}>CSDO</th>
+                    <th style={{ textAlign: 'center', color: '#818cf8' }}>Total SO</th>
+                    <th style={{ textAlign: 'center', color: '#6366f1' }}>Active SO</th>
+                    <th style={{ textAlign: 'center', color: 'var(--db-muted)' }}>Inactive SO</th>
+                    {anyHasSDO && (
+                      <>
+                        <th style={{ textAlign: 'center', color: '#f59e0b' }}>Total SDO</th>
+                        <th style={{ textAlign: 'center', color: '#34d399' }}>Active SDO</th>
+                        <th style={{ textAlign: 'center', color: 'var(--db-muted)' }}>Inactive SDO</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {soBarData.map((row, idx) => {
+                    const inactiveSO  = Math.max(0, row.totalSO  - row.activeSO);
+                    const inactiveSDO = Math.max(0, row.totalSDO - row.activeSDO);
+                    return (
+                      <tr key={row.csdo}>
+                        <td>
+                          <span className={`db-rank ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}`}>
+                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="db-csdo-name-cell">
+                            <span className="db-csdo-dot" style={{ background: row.color }} />
+                            {row.csdo}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#818cf8' }}>{row.totalSO}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 600, color: '#6366f1' }}>{row.activeSO}</td>
+                        <td style={{ textAlign: 'center', color: 'var(--db-muted)' }}>{inactiveSO}</td>
+                        {anyHasSDO && (
+                          <>
+                            <td style={{ textAlign: 'center', fontWeight: 600, color: '#f59e0b' }}>{row.hasSDO ? row.totalSDO : '—'}</td>
+                            <td style={{ textAlign: 'center', fontWeight: 600, color: '#34d399' }}>{row.hasSDO ? row.activeSDO : '—'}</td>
+                            <td style={{ textAlign: 'center', color: 'var(--db-muted)' }}>{row.hasSDO ? inactiveSDO : '—'}</td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(99,102,241,0.06)' }}>
+                    <td colSpan={2} style={{ fontWeight: 700, color: '#e2e8f0', paddingLeft: '0.75rem' }}>
+                      Total ({soBarData.length} CSDOs)
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#818cf8' }}>
+                      {soBarData.reduce((s, r) => s + r.totalSO, 0)}
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#6366f1' }}>
+                      {soBarData.reduce((s, r) => s + r.activeSO, 0)}
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--db-muted)' }}>
+                      {soBarData.reduce((s, r) => s + Math.max(0, r.totalSO - r.activeSO), 0)}
+                    </td>
+                    {anyHasSDO && (
+                      <>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#f59e0b' }}>
+                          {soBarData.reduce((s, r) => s + (r.hasSDO ? r.totalSDO : 0), 0)}
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#34d399' }}>
+                          {soBarData.reduce((s, r) => s + (r.hasSDO ? r.activeSDO : 0), 0)}
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--db-muted)' }}>
+                          {soBarData.reduce((s, r) => s + (r.hasSDO ? Math.max(0, r.totalSDO - r.activeSDO) : 0), 0)}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Active rate badges */}
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+              {(() => {
+                const totSO  = soBarData.reduce((s, r) => s + r.totalSO,  0);
+                const actSO  = soBarData.reduce((s, r) => s + r.activeSO, 0);
+                const totSDO = soBarData.reduce((s, r) => s + (r.hasSDO ? r.totalSDO  : 0), 0);
+                const actSDO = soBarData.reduce((s, r) => s + (r.hasSDO ? r.activeSDO : 0), 0);
+                const soRate  = totSO  > 0 ? Math.round((actSO  / totSO)  * 100) : 0;
+                const sdoRate = totSDO > 0 ? Math.round((actSDO / totSDO) * 100) : 0;
+                return (
+                  <>
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                      padding: '0.3rem 0.8rem', borderRadius: 20,
+                      background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)',
+                      fontSize: '0.78rem', color: '#818cf8',
+                    }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
+                      SO Active Rate: <strong style={{ color: '#e2e8f0' }}>{soRate}%</strong>
+                    </span>
+                    {anyHasSDO && totSDO > 0 && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                        padding: '0.3rem 0.8rem', borderRadius: 20,
+                        background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)',
+                        fontSize: '0.78rem', color: '#f59e0b',
+                      }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                        SDO Active Rate: <strong style={{ color: '#e2e8f0' }}>{sdoRate}%</strong>
+                      </span>
+                    )}
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                      padding: '0.3rem 0.8rem', borderRadius: 20,
+                      background: 'rgba(20,184,166,0.1)', border: '1px solid rgba(20,184,166,0.2)',
+                      fontSize: '0.78rem', color: '#5eead4',
+                    }}>
+                      📅 Data as of {endDate}
+                    </span>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ── Activity Rate Time Series ── */}
+        {data && activityChartData.length > 0 && (
+          <div className="db-chart-card" style={{ marginTop: '1.5rem' }}>
+            <div className="db-chart-header" style={{ marginBottom: '1rem' }}>
+              <div>
+                <div className="db-chart-title">
+                  📈{' '}
+                  {activityFilter === 'both'
+                    ? 'SO & SDO'
+                    : activityFilter === 'SDO' ? 'SDO' : 'SO'}{' '}
+                  Activity Rate Over Time
+                  <span style={{ fontSize: '0.7rem', color: 'var(--db-muted)', fontWeight: 400, marginLeft: '0.5rem' }}>
+                    — Active ÷ Total × 100%
+                  </span>
+                </div>
+                <p style={{ fontSize: '0.73rem', color: 'var(--db-muted)', margin: '0.25rem 0 0' }}>
+                  {startDate} → {endDate}
+                  &nbsp;·&nbsp;
+                  {isActivityAggregate
+                    ? <span style={{ color: '#6366f1' }}>Avg across all CSDOs — select CSDOs above to compare individually</span>
+                    : <span>{activityKeys.length} CSDO series</span>
+                  }
+                </p>
+              </div>
+              {/* SO / SDO / Both toggle */}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {(['SO', 'SDO', 'both'] as const).map((f) => (
+                  <button
+                    key={f}
+                    className={`db-chip ${activityFilter === f ? 'active' : ''}`}
+                    onClick={() => setActivityFilter(f)}
+                    style={{ minWidth: 52 }}
+                  >
+                    {f === 'both' ? 'Both' : f}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={Math.max(300, activityKeys.length * 22 + 140)}>
+              <LineChart data={activityChartData} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="dateLabel"
+                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={42}
+                  domain={[0, 100]}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="chart-tooltip">
+                        <div className="tooltip-date">{label}</div>
+                        {payload
+                          .filter((p) => (p.value as number) > 0)
+                          .sort((a, b) => (b.value as number) - (a.value as number))
+                          .map((p) => (
+                            <div key={p.name} className="tooltip-row">
+                              <span className="tooltip-dot" style={{ background: p.color as string }} />
+                              <span className="tooltip-name">{p.name}</span>
+                              <span className="tooltip-val">{p.value}%</span>
+                            </div>
+                          ))}
+                        <div className="tooltip-meta">Activity Rate</div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend
+                  wrapperStyle={{ fontSize: '11px', paddingTop: '12px', color: '#94a3b8' }}
+                  formatter={(value) => <span style={{ color: '#94a3b8' }}>{value}</span>}
+                />
+                {activityKeys.map((key, idx) => {
+                  // ── Aggregate mode: fixed branded colors ─────────────────────
+                  if (isActivityAggregate) {
+                    const isSDO = key === 'Avg SDO Active Rate';
+                    return (
+                      <Line
+                        key={key}
+                        type="monotone"
+                        dataKey={key}
+                        name={key}
+                        stroke={isSDO ? '#f59e0b' : '#6366f1'}
+                        strokeWidth={2.5}
+                        strokeDasharray={isSDO && activityFilter === 'both' ? '6 3' : undefined}
+                        dot={{ r: 3, fill: isSDO ? '#f59e0b' : '#6366f1', strokeWidth: 0 }}
+                        activeDot={{ r: 6, strokeWidth: 0 }}
+                        connectNulls
+                      />
+                    );
+                  }
+                  // ── Per-CSDO mode: palette colors ────────────────────────────
+                  const isSDOKey = key.endsWith(' SDO%') || activityFilter === 'SDO';
+                  const csdo = key.replace(/ (SO|SDO)%$/, '');
+                  const baseIdx = filteredCSDOs.indexOf(csdo);
+                  const baseColor = csodoColor(baseIdx >= 0 ? baseIdx : idx);
+                  const color = isSDOKey
+                    ? csodoColor((baseIdx >= 0 ? baseIdx : idx) + 7)
+                    : baseColor;
+                  return (
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      name={key}
+                      stroke={color}
+                      strokeWidth={activityFilter === 'both' ? (isSDOKey ? 1.5 : 2) : 2}
+                      strokeDasharray={isSDOKey && activityFilter === 'both' ? '5 3' : undefined}
+                      dot={false}
+                      activeDot={{ r: 5, strokeWidth: 0 }}
+                      connectNulls
+                    />
+                  );
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Legend hint */}
+            {activityFilter === 'both' && (
+              <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--db-muted)' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ display: 'inline-block', width: 22, height: 2.5, background: '#6366f1', borderRadius: 2 }} />
+                  {isActivityAggregate ? 'Avg SO Active Rate' : 'Solid = SO Activity Rate'}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{
+                    display: 'inline-block', width: 22, height: 0,
+                    borderTop: '2px dashed #f59e0b',
+                  }} />
+                  {isActivityAggregate ? 'Avg SDO Active Rate' : 'Dashed = SDO Activity Rate'}
+                </span>
+              </div>
+            )}
+
           </div>
         )}
 

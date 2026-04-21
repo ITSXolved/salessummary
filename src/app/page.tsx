@@ -42,11 +42,11 @@ function ReportSection({
 
       <div className="metrics-group">
         <div className="metrics-group-title">Today</div>
-        <MetricRow label="Today Admission" value={data.todayAdmission} highlight />
+        <MetricRow label="Admission" value={data.todayAdmission} highlight />
         {showIncome !== false && (
-          <MetricRow label="Today Income" value={formatNumber(data.todayIncome)} highlight />
+          <MetricRow label="Income" value={formatNumber(data.todayIncome)} highlight />
         )}
-        <MetricRow label="Today Point" value={data.todayPoint} highlight />
+        <MetricRow label="Point" value={data.todayPoint} highlight />
       </div>
 
       <div className="divider" />
@@ -222,24 +222,24 @@ export default function Home() {
         <label>Select Report Date(s)</label>
         <div className="date-row">
           <div className="date-input-group">
-             <label htmlFor="report-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>From Date</label>
-             <input
-               id="report-date"
-               type="date"
-               value={date}
-               onChange={(e) => setDate(e.target.value)}
-               onKeyDown={handleKeyDown}
-             />
+            <label htmlFor="report-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>From Date</label>
+            <input
+              id="report-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
           </div>
           <div className="date-input-group">
-             <label htmlFor="end-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>To Date (Optional)</label>
-             <input
-               id="end-date"
-               type="date"
-               value={endDate}
-               onChange={(e) => setEndDate(e.target.value)}
-               onKeyDown={handleKeyDown}
-             />
+            <label htmlFor="end-date" style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.2rem', display: 'block' }}>To Date (Optional)</label>
+            <input
+              id="end-date"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
           </div>
           <button
             className="btn-generate"
