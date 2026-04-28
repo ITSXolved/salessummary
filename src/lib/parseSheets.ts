@@ -356,18 +356,11 @@ export function generateReportText(data: ReportData): string {
   // Nawazin section
   if (nawazin) {
     text += `*Nawazin*\n\n`;
-    text += `Admission: *${nawazin.todayAdmission}*\n`;
-    text += `Income: *${formatNumber(nawazin.todayIncome)}*\n`;
+    text += `Admission: *${nawazin.todayAdmission}*\n\n`;
     text += `Point: *${nawazin.todayPoint}*\n\n`;
-    text += `Month Admission: *${nawazin.monthAdmission}*\n`;
-    text += `Month Income: *${formatNumber(nawazin.monthIncome)}*\n`;
-    text += `Month Point: *${nawazin.monthPoint}*\n\n`;
-    text += `Total Raihan admission- ${nawazin.raihanAdmission}\n`;
-    text += `Total Zealy admission -${nawazin.zealyAdmission}\n`;
-    text += `Total Ags admission - ${nawazin.agsAdmission}\n\n`;
-    text += `Total SO :${nawazin.totalSO}\n`;
+    text += `Total SO : ${nawazin.totalSO}\n`;
     text += `Active SO : ${nawazin.activeSO}\n\n`;
-    text += `Total SDO:${nawazin.totalSDO}\n`;
+    text += `Total SDO: ${nawazin.totalSDO}\n`;
     text += `Active SDO : ${nawazin.activeSDO}\n\n`;
   } else {
     text += `*Nawazin*\n\nNo data available for this date.\n\n`;
@@ -375,78 +368,49 @@ export function generateReportText(data: ReportData): string {
 
   // Ayadi & Elite section
   if (ayadi) {
-    text += `*AYADI*  & *ELITE*\n\n`;
+    text += `*AYADI  & ELITE*\n\n`;
     text += `Admission: *${ayadi.todayAdmission}*\n`;
-    text += `Income: *${formatNumber(ayadi.todayIncome)}*\n`;
     text += `Point: *${ayadi.todayPoint}*\n\n`;
-    text += `Month Admission: *${ayadi.monthAdmission}*\n`;
-    text += `Month Income: *${formatNumber(ayadi.monthIncome)}*\n`;
-    text += `Month Point: *${ayadi.monthPoint}*\n\n`;
-    text += `Total Raihan admission- ${ayadi.raihanAdmission}\n`;
-    text += `Total Zealy admission -${ayadi.zealyAdmission}\n`;
-    text += `Total Ags admission - ${ayadi.agsAdmission}\n\n`;
-    text += `Total  SO :${ayadi.totalSO}\n`;
-    text += `Active SO :${ayadi.activeSO}\n\n`;
+    text += `Total  SO : ${ayadi.totalSO}\n`;
+    text += `Active SO : ${ayadi.activeSO}\n\n`;
     text += `Total SDO: ${ayadi.totalSDO}\n`;
     text += `Active SDO : ${ayadi.activeSDO}\n\n`;
-    text += `Total  MSO :${ayadi.totalMSO}\n`;
-    text += `Active MSO :${ayadi.activeMSO}\n\n`;
+    text += `Total  MSO : ${ayadi.totalMSO}\n`;
+    text += `Active MSO : ${ayadi.activeMSO}\n\n`;
   } else {
-    text += `*AYADI*  & *ELITE*\n\nNo data available for this date.\n\n`;
+    text += `*AYADI  & ELITE*\n\nNo data available for this date.\n\n`;
   }
 
   // Manager section
   if (manager) {
     text += `*Manager*\n\n`;
     text += `Admission: *${manager.todayAdmission}*\n`;
-    text += `Point  : *${manager.todayPoint}*\n`;
-    text += `income : *${formatNumber(manager.todayIncome)}*\n\n`;
-    text += `Month admission: *${manager.monthAdmission}*\n`;
-    text += `Month point: *${manager.monthPoint}*\n`;
-    text += `Month income *${formatNumber(manager.monthIncome)}*\n\n`;
-    text += `Total Raihan admission- *${manager.raihanAdmission}*\n`;
-    text += `Total Zealy admission - *${manager.zealyAdmission}*\n`;
-    text += `Total Ags admission - *${manager.agsAdmission}*\n\n`;
-    text += `Total  SO :${manager.totalSO}\n`;
-    text += `Active SO :${manager.activeSO}\n`;
+    text += `Point  : *${manager.todayPoint}*\n\n`;
+    text += `Total  SO : ${manager.totalSO}\n`;
+    text += `Active SO : ${manager.activeSO}\n\n`;
   } else {
     text += `*Manager*\n\nNo data available for this date.\n\n`;
   }
 
   // Totals
   const totalIncome =
-    (nawazin?.monthIncome || 0) +
-    (ayadi?.monthIncome || 0) +
-    (manager?.monthIncome || 0);
+    (nawazin?.todayIncome || 0) +
+    (ayadi?.todayIncome || 0) +
+    (manager?.todayIncome || 0);
   const totalAdmission =
-    (nawazin?.monthAdmission || 0) +
-    (ayadi?.monthAdmission || 0) +
-    (manager?.monthAdmission || 0);
-  const totalMonthPoint =
-    (nawazin?.monthPoint || 0) +
-    (ayadi?.monthPoint || 0) +
-    (manager?.monthPoint || 0);
-  const totalRaihan =
-    (nawazin?.raihanAdmission || 0) +
-    (ayadi?.raihanAdmission || 0) +
-    (manager?.raihanAdmission || 0);
-  const totalZealy =
-    (nawazin?.zealyAdmission || 0) +
-    (ayadi?.zealyAdmission || 0) +
-    (manager?.zealyAdmission || 0);
-  const totalAgs =
-    (nawazin?.agsAdmission || 0) +
-    (ayadi?.agsAdmission || 0) +
-    (manager?.agsAdmission || 0);
+    (nawazin?.todayAdmission || 0) +
+    (ayadi?.todayAdmission || 0) +
+    (manager?.todayAdmission || 0);
+  const totalPoint =
+    (nawazin?.todayPoint || 0) +
+    (ayadi?.todayPoint || 0) +
+    (manager?.todayPoint || 0);
 
-  text += `\n-------------------------------------------------------------\n`;
+  text += `-------------------------------------------------------------\n`;
   text += `Total Income: *${formatNumber(totalIncome)}*\n`;
   text += `Total Admission: *${totalAdmission}*\n`;
-  text += `Total Month Point: *${totalMonthPoint}*\n`;
+  text += `Total  Point: *${totalPoint}*\n`;
   text += `---------------------------------------------------------------\n`;
-  text += `Total Raihan admission- *${totalRaihan}*\n`;
-  text += `Total Zealy admission - *${totalZealy}*\n`;
-  text += `Total Ags admission - *${totalAgs}*\n`;
 
   return text;
 }
