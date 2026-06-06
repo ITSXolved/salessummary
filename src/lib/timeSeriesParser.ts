@@ -30,6 +30,9 @@ export interface CSDODayPoint {
   point: number;
   admission: number;
   income: number;
+  monthPoint: number;
+  monthAdmission: number;
+  monthIncome: number;
   totalSO: number;    // snapshot: total SOs under this CSDO on that day
   activeSO: number;   // snapshot: active SOs under this CSDO on that day
   totalSDO: number;   // snapshot: total SDOs under this CSDO on that day
@@ -146,9 +149,18 @@ async function fetchSheetTimeSeries(
     const getColIdx = (partial: string) =>
       headers.findIndex((h) => h.toUpperCase().includes(partial.toUpperCase()));
 
-    const todayPtIdx = getColIdx('POINT');
-    const todayAdmIdx = getColIdx('ADMISSION');
-    const todayIncIdx = getColIdx('INCOME');
+    let todayPtIdx = headers.findIndex((h) => h.toUpperCase().includes('TODAY POINT'));
+    if (todayPtIdx === -1) todayPtIdx = getColIdx('POINT');
+
+    let todayAdmIdx = headers.findIndex((h) => h.toUpperCase().includes('TODAY ADMISSION'));
+    if (todayAdmIdx === -1) todayAdmIdx = getColIdx('ADMISSION');
+
+    let todayIncIdx = headers.findIndex((h) => h.toUpperCase().includes('TODAY INCOME'));
+    if (todayIncIdx === -1) todayIncIdx = getColIdx('INCOME');
+
+    const monthPtIdx = headers.findIndex((h) => h.toUpperCase().includes('MONTH POINT'));
+    const monthAdmIdx = headers.findIndex((h) => h.toUpperCase().includes('MONTH ADMISSION'));
+    const monthIncIdx = headers.findIndex((h) => h.toUpperCase().includes('MONTH INCOME'));
 
     // SO columns — exclude MSO and SDO to avoid false matches
     const totalSOIdx = headers.findIndex((h) =>
@@ -216,6 +228,9 @@ async function fetchSheetTimeSeries(
           point: val(cols, todayPtIdx),
           admission: val(cols, todayAdmIdx),
           income: val(cols, todayIncIdx),
+          monthPoint: val(cols, monthPtIdx),
+          monthAdmission: val(cols, monthAdmIdx),
+          monthIncome: val(cols, monthIncIdx),
           totalSO: val(cols, totalSOIdx),
           activeSO: val(cols, activeSOIdx),
           totalSDO: val(cols, totalSDOIdx),

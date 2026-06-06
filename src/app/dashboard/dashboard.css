@@ -794,6 +794,57 @@
   filter: grayscale(0.5);
 }
 
+/* ─── Targets View Styling ─────────────────────────────────────────────────── */
+
+.db-target-row-interactive {
+  transition: background-color 0.15s ease, border-left-color 0.15s ease;
+}
+
+.db-target-row-interactive:hover {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+.db-target-row-interactive.selected {
+  background: rgba(99, 102, 241, 0.05) !important;
+  box-shadow: inset 3px 0 0 var(--db-accent);
+}
+
+.db-source-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--db-border);
+  color: var(--db-sub);
+}
+
+.db-month-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  color: #a78bfa;
+}
+
+.text-green {
+  color: var(--db-green) !important;
+}
+
+.text-amber {
+  color: var(--db-amber) !important;
+}
+
+.text-red {
+  color: var(--db-red) !important;
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
